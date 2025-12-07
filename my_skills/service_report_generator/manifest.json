@@ -1,0 +1,30 @@
+{
+  "name": "Service Report Generator",
+  "description": "生成当月服务绩效汇总报表，按小组/销售人员统计 SOP 和二单元完成率",
+  "commands": [
+    {
+      "name": "SOP报表",
+      "description": "生成当天的 SOP 和二单元服务绩效汇总报表",
+      "parameters": [
+        {
+          "name": "sop_file",
+          "type": "string",
+          "description": "SOP 数据 CSV 文件路径（例如：1001035468_20251207_0000.csv）",
+          "required": true
+        },
+        {
+          "name": "erdan_file",
+          "type": "string",
+          "description": "二单元数据 Excel 文件路径（例如：国内SS业务数据仪表盘-SH_二单元覆盖率数据副本_20251207_1611.xlsx）",
+          "required": true
+        },
+        {
+          "name": "report_date",
+          "type": "string",
+          "description": "报表统计日期（格式：YYYY-MM-DD，不指定时默认为当天）",
+          "required": false
+        }
+      ]
+    }
+  ]
+}
