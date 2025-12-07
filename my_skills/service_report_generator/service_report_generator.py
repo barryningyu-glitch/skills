@@ -28,7 +28,7 @@ class ServiceReportGenerator:
         self.report_month = report_date.replace(day=1)  # 当月 1 号
         
     def read_sop_data(self, sop_file):
-        """读取 SOP CSV 数据"""
+        """读取 SOP CSV 数据 - 只统计上海 SS 团队"""
         sop_data = defaultdict(lambda: {"总数": 0, "完成": 0, "销售": {}})
         
         try:
@@ -38,17 +38,21 @@ class ServiceReportGenerator:
                     # 清理列名空格
                     row = {k.strip(): v for k, v in row.items()}
                     
+                    # 过滤：只统计上海 SS 团队（小组名称包含 "SH-SS"）
+                    小组 = row.get('小组名称', '').strip()
+                    if not 小组.startswith('SH-SS'):
+                        continue
+                    
                     # 解析生成日期
                     try:
                         sop_date = datetime.strptime(row.get('sop生成日期', '')[:10], '%Y-%m-%d').date()
                     except (ValueError, TypeError):
                         continue
                     
-                    # 只统计当月数据
+                    # 只统计当月数据（分母）
                     if sop_date.month != self.report_month.month or sop_date.year != self.report_month.year:
                         continue
                     
-                    小组 = row.get('小组名称', '未知小组').strip()
                     销售 = row.get('销售名称', '未知销售').strip()
                     状态 = row.get('sop状态', '').strip()
                     
@@ -56,11 +60,11 @@ class ServiceReportGenerator:
                     if 销售 not in sop_data[小组]['销售']:
                         sop_data[小组]['销售'][销售] = {"总数": 0, "完成": 0}
                     
-                    # 统计总数
+                    # 统计当月总数（分母）
                     sop_data[小组]['总数'] += 1
                     sop_data[小组]['销售'][销售]['总数'] += 1
                     
-                    # 统计完成数（状态为"已完成"）
+                    # 统计完成数（状态为"已完成"，不受日期限制，包括历史完成）
                     if 状态 == '已完成':
                         sop_data[小组]['完成'] += 1
                         sop_data[小组]['销售'][销售]['完成'] += 1
@@ -71,7 +75,7 @@ class ServiceReportGenerator:
             return {}
     
     def read_erdan_data(self, erdan_file):
-        """读取二单元 Excel 数据"""
+        """读取二单元 Excel 数据 - 只统计上海 SS 团队"""
         erdan_data = defaultdict(lambda: {"总数": 0, "完成": 0, "销售": {}})
         
         try:
@@ -84,6 +88,11 @@ class ServiceReportGenerator:
                     continue
                 
                 小组 = row[1] if len(row) > 1 else '未知小组'
+                
+                # 过滤：只统计上海 SS 团队（小组名称包含 "SH-SS"）
+                if not (小组 and str(小组).startswith('SH-SS')):
+                    continue
+                
                 销售 = row[2] if len(row) > 2 else '未知销售'
                 完课时间_str = row[4] if len(row) > 4 else None
                 call_120s = row[6] if len(row) > 6 else None
@@ -99,7 +108,7 @@ class ServiceReportGenerator:
                 except (ValueError, TypeError, AttributeError):
                     完课时间 = None
                 
-                # 只统计当月完课的数据
+                # 只统计当月完课的数据（分母）
                 if 完课时间 is None or 完课时间.month != self.report_month.month or 完课时间.year != self.report_month.year:
                     continue
                 
@@ -107,11 +116,11 @@ class ServiceReportGenerator:
                 if 销售 not in erdan_data[小组]['销售']:
                     erdan_data[小组]['销售'][销售] = {"总数": 0, "完成": 0}
                 
-                # 统计总数
+                # 统计当月总数（分母）
                 erdan_data[小组]['总数'] += 1
                 erdan_data[小组]['销售'][销售]['总数'] += 1
                 
-                # 统计完成数（120s通话数不为空且不为0）
+                # 统计完成数（120s通话数有数字）
                 try:
                     if call_120s and str(call_120s).strip() not in ['', '−', '0']:
                         erdan_data[小组]['完成'] += 1
@@ -201,6 +210,11 @@ class ServiceReportGenerator:
         # 写入数据
         current_row = 5
         
+        total_sop_count = 0
+        total_sop_completed = 0
+        total_erdan_count = 0
+        total_erdan_completed = 0
+        
         for group in all_groups:
             group_sop = sop_data.get(group, {})
             group_erdan = erdan_data.get(group, {})
@@ -212,6 +226,12 @@ class ServiceReportGenerator:
             erdan_total = group_erdan.get('总数', 0)
             erdan_completed = group_erdan.get('完成', 0)
             erdan_rate = (erdan_completed / erdan_total * 100) if erdan_total > 0 else 0
+            
+            # 汇总统计
+            total_sop_count += sop_total
+            total_sop_completed += sop_completed
+            total_erdan_count += erdan_total
+            total_erdan_completed += erdan_completed
             
             # 综合评分（简单平均）
             total_rate = (sop_rate + erdan_rate) / 2
@@ -329,6 +349,65 @@ class ServiceReportGenerator:
             
             current_row += len(all_sales)
         
+        # 添加总汇总行
+        summary_row = current_row + 1
+        summary_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+        summary_font = Font(bold=True, size=11, color='000000')
+        
+        # 总汇总标题
+        a_summary = ws.cell(row=summary_row, column=1)
+        a_summary.value = '【上海SS团队总汇总】'
+        a_summary.fill = summary_fill
+        a_summary.font = summary_font
+        a_summary.border = border
+        a_summary.alignment = center_align
+        
+        # 总汇总数据
+        summary_cells = [
+            (2, ''),  # 销售列空
+            (3, total_sop_count),
+            (4, total_sop_completed),
+            (5, (total_sop_completed / total_sop_count * 100) if total_sop_count > 0 else 0),
+            (6, total_erdan_count),
+            (7, total_erdan_completed),
+            (8, (total_erdan_completed / total_erdan_count * 100) if total_erdan_count > 0 else 0),
+        ]
+        
+        for col, val in summary_cells:
+            cell = ws.cell(row=summary_row, column=col)
+            if col == 2:
+                cell.value = ''
+            elif col in [5, 8]:
+                cell.value = val
+                cell.number_format = '0.0"%"'
+            else:
+                cell.value = val
+            cell.fill = summary_fill
+            cell.font = summary_font
+            cell.border = border
+            cell.alignment = center_align
+        
+        # 综合评分
+        total_sop_rate = (total_sop_completed / total_sop_count * 100) if total_sop_count > 0 else 0
+        total_erdan_rate = (total_erdan_completed / total_erdan_count * 100) if total_erdan_count > 0 else 0
+        total_combined_rate = (total_sop_rate + total_erdan_rate) / 2
+        
+        i_summary = ws.cell(row=summary_row, column=9)
+        i_summary.value = total_combined_rate
+        i_summary.number_format = '0.0"%"'
+        i_summary.fill = summary_fill
+        i_summary.font = summary_font
+        i_summary.border = border
+        i_summary.alignment = center_align
+        
+        # 根据综合评分着色
+        if total_combined_rate >= 80:
+            i_summary.fill = green_fill
+        elif total_combined_rate >= 60:
+            i_summary.fill = yellow_fill
+        else:
+            i_summary.fill = red_fill
+        
         # 保存文件
         report_file = output_dir / f'服务绩效汇总报表_{self.report_date.strftime("%Y%m%d")}.xlsx'
         wb.save(str(report_file))
@@ -337,7 +416,10 @@ class ServiceReportGenerator:
             'success': True,
             'groups': len(all_groups),
             'report_file': str(report_file),
-            'output_dir': str(output_dir)
+            'output_dir': str(output_dir),
+            'total_sop_rate': total_sop_rate,
+            'total_erdan_rate': total_erdan_rate,
+            'total_combined_rate': total_combined_rate
         }
 
 
@@ -365,11 +447,17 @@ def handle_sop_report_command(sop_file, erdan_file, report_date=None, output_bas
     
     if result['success']:
         report_msg = f"""
-📊 服务绩效汇总报表
+📊 上海SS团队服务绩效汇总报表
 ==================================================
 报告日期: {generator.report_date.strftime('%Y-%m-%d')}
 统计周期: {generator.report_month.strftime('%Y-%m-01')} ~ {generator.report_date.strftime('%Y-%m-%d')}
 涵盖小组数: {result['groups']}
+
+【整体完成率】
+  • SOP 完成率: {result['total_sop_rate']:.1f}%
+  • 二单元完成率: {result['total_erdan_rate']:.1f}%
+  • 综合评分: {result['total_combined_rate']:.1f}%
+
 输出文件: {Path(result['report_file']).name}
 输出目录: {result['output_dir']}
 """
