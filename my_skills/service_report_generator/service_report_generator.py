@@ -1,6 +1,6 @@
 """
 Service Report Generator - 生成当月服务绩效汇总报表
-按小组/销售人员统计 SOP 和二单元的完成率
+按小组/销售人员统计首通、首单元、二单元的完成率
 """
 
 import csv
@@ -28,8 +28,11 @@ class ServiceReportGenerator:
         self.report_month = report_date.replace(day=1)  # 当月 1 号
         
     def read_sop_data(self, sop_file):
-        """读取 SOP CSV 数据 - 只统计上海 SS 团队"""
-        sop_data = defaultdict(lambda: {"总数": 0, "完成": 0, "销售": {}})
+        """读取 SOP CSV 数据 - 只统计上海 SS 团队，分别统计首通和首单元"""
+        sop_data = defaultdict(lambda: {
+            "首通": {"总数": 0, "完成": 0, "销售": {}},
+            "首单元": {"总数": 0, "完成": 0, "销售": {}}
+        })
         
         try:
             with open(sop_file, 'r', encoding='gb18030') as f:
@@ -54,20 +57,29 @@ class ServiceReportGenerator:
                         continue
                     
                     销售 = row.get('销售名称', '未知销售').strip()
+                    sop_类型 = row.get('sop类型', '').strip()
                     状态 = row.get('sop状态', '').strip()
                     
+                    # 判断是首通还是首单元
+                    if '首课' in sop_类型 or '首通' in sop_类型:
+                        type_key = '首通'
+                    elif '首单元' in sop_类型:
+                        type_key = '首单元'
+                    else:
+                        continue
+                    
                     # 初始化销售数据
-                    if 销售 not in sop_data[小组]['销售']:
-                        sop_data[小组]['销售'][销售] = {"总数": 0, "完成": 0}
+                    if 销售 not in sop_data[小组][type_key]['销售']:
+                        sop_data[小组][type_key]['销售'][销售] = {"总数": 0, "完成": 0}
                     
                     # 统计当月总数（分母）
-                    sop_data[小组]['总数'] += 1
-                    sop_data[小组]['销售'][销售]['总数'] += 1
+                    sop_data[小组][type_key]['总数'] += 1
+                    sop_data[小组][type_key]['销售'][销售]['总数'] += 1
                     
                     # 统计完成数（状态为"已完成"，不受日期限制，包括历史完成）
                     if 状态 == '已完成':
-                        sop_data[小组]['完成'] += 1
-                        sop_data[小组]['销售'][销售]['完成'] += 1
+                        sop_data[小组][type_key]['完成'] += 1
+                        sop_data[小组][type_key]['销售'][销售]['完成'] += 1
             
             return dict(sop_data)
         except Exception as e:
@@ -133,6 +145,18 @@ class ServiceReportGenerator:
             print(f"错误：无法读取二单元文件 {erdan_file}: {e}")
             return {}
     
+    def _apply_rate_color(self, cell, rate, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font):
+        """根据完成率给单元格着色"""
+        if rate >= 80:
+            cell.fill = green_fill
+            cell.font = green_font
+        elif rate >= 60:
+            cell.fill = yellow_fill
+            cell.font = yellow_font
+        else:
+            cell.fill = red_fill
+            cell.font = red_font
+    
     def generate_report(self, sop_file, erdan_file, output_base=None):
         """生成汇总报表"""
         if output_base is None:
@@ -176,14 +200,14 @@ class ServiceReportGenerator:
         )
         
         # 写入标题
-        ws.merge_cells('A1:I1')
+        ws.merge_cells('A1:L1')
         title = ws['A1']
-        title.value = f"服务绩效汇总报表 - {self.report_date.strftime('%Y年%m月%d日')}"
+        title.value = f"上海SS团队服务绩效汇总报表 - {self.report_date.strftime('%Y年%m月%d日')}"
         title.font = Font(bold=True, size=14)
         title.alignment = center_align
         
         # 写入日期范围说明
-        ws.merge_cells('A2:I2')
+        ws.merge_cells('A2:L2')
         date_range = ws['A2']
         month_start = self.report_month.strftime('%Y-%m-01')
         month_end = self.report_date.strftime('%Y-%m-%d')
@@ -192,7 +216,7 @@ class ServiceReportGenerator:
         date_range.alignment = center_align
         
         # 写入列标题
-        headers = ['小组', 'SS销售', 'SOP总数', 'SOP完成', 'SOP完成率', '二单元总数', '二单元完成', '二单元完成率', '综合评分']
+        headers = ['小组', 'SS销售', '首通总数', '首通完成', '首通率', '首单元总数', '首单元完成', '首单元率', '二单元总数', '二单元完成', '二单元率', '综合评分']
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col)
             cell.value = header
@@ -204,40 +228,53 @@ class ServiceReportGenerator:
         # 设置列宽
         ws.column_dimensions['A'].width = 14
         ws.column_dimensions['B'].width = 16
-        for col in ['C', 'D', 'E', 'F', 'G', 'H', 'I']:
-            ws.column_dimensions[col].width = 14
+        for col in ['C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']:
+            ws.column_dimensions[col].width = 12
         
         # 写入数据
         current_row = 5
         
-        total_sop_count = 0
-        total_sop_completed = 0
-        total_erdan_count = 0
-        total_erdan_completed = 0
+        total_stt_count = 0  # 首通总数
+        total_stt_completed = 0  # 首通完成数
+        total_sdy_count = 0  # 首单元总数
+        total_sdy_completed = 0  # 首单元完成数
+        total_erdan_count = 0  # 二单元总数
+        total_erdan_completed = 0  # 二单元完成数
         
         for group in all_groups:
             group_sop = sop_data.get(group, {})
             group_erdan = erdan_data.get(group, {})
             
-            sop_total = group_sop.get('总数', 0)
-            sop_completed = group_sop.get('完成', 0)
-            sop_rate = (sop_completed / sop_total * 100) if sop_total > 0 else 0
+            # 首通数据
+            stt_total = group_sop.get('首通', {}).get('总数', 0)
+            stt_completed = group_sop.get('首通', {}).get('完成', 0)
+            stt_rate = (stt_completed / stt_total * 100) if stt_total > 0 else 0
             
+            # 首单元数据
+            sdy_total = group_sop.get('首单元', {}).get('总数', 0)
+            sdy_completed = group_sop.get('首单元', {}).get('完成', 0)
+            sdy_rate = (sdy_completed / sdy_total * 100) if sdy_total > 0 else 0
+            
+            # 二单元数据
             erdan_total = group_erdan.get('总数', 0)
             erdan_completed = group_erdan.get('完成', 0)
             erdan_rate = (erdan_completed / erdan_total * 100) if erdan_total > 0 else 0
             
             # 汇总统计
-            total_sop_count += sop_total
-            total_sop_completed += sop_completed
+            total_stt_count += stt_total
+            total_stt_completed += stt_completed
+            total_sdy_count += sdy_total
+            total_sdy_completed += sdy_completed
             total_erdan_count += erdan_total
             total_erdan_completed += erdan_completed
             
-            # 综合评分（简单平均）
-            total_rate = (sop_rate + erdan_rate) / 2
+            # 综合评分（三个维度的平均）
+            combined_rate = (stt_rate + sdy_rate + erdan_rate) / 3
             
             # 获取所有销售
-            all_sales = set(group_sop.get('销售', {}).keys()) | set(group_erdan.get('销售', {}).keys())
+            all_sales = set(group_sop.get('首通', {}).get('销售', {}).keys()) | \
+                       set(group_sop.get('首单元', {}).get('销售', {}).keys()) | \
+                       set(group_erdan.get('销售', {}).keys())
             all_sales = sorted(all_sales)
             
             # 小组汇总行
@@ -254,17 +291,25 @@ class ServiceReportGenerator:
             for sale_idx, sale in enumerate(all_sales):
                 row = current_row + sale_idx
                 
-                sale_sop = group_sop.get('销售', {}).get(sale, {})
-                sale_sop_total = sale_sop.get('总数', 0)
-                sale_sop_completed = sale_sop.get('完成', 0)
-                sale_sop_rate = (sale_sop_completed / sale_sop_total * 100) if sale_sop_total > 0 else 0
+                # 首通
+                stt_sale = group_sop.get('首通', {}).get('销售', {}).get(sale, {})
+                stt_sale_total = stt_sale.get('总数', 0)
+                stt_sale_completed = stt_sale.get('完成', 0)
+                stt_sale_rate = (stt_sale_completed / stt_sale_total * 100) if stt_sale_total > 0 else 0
                 
-                sale_erdan = group_erdan.get('销售', {}).get(sale, {})
-                sale_erdan_total = sale_erdan.get('总数', 0)
-                sale_erdan_completed = sale_erdan.get('完成', 0)
-                sale_erdan_rate = (sale_erdan_completed / sale_erdan_total * 100) if sale_erdan_total > 0 else 0
+                # 首单元
+                sdy_sale = group_sop.get('首单元', {}).get('销售', {}).get(sale, {})
+                sdy_sale_total = sdy_sale.get('总数', 0)
+                sdy_sale_completed = sdy_sale.get('完成', 0)
+                sdy_sale_rate = (sdy_sale_completed / sdy_sale_total * 100) if sdy_sale_total > 0 else 0
                 
-                sale_total_rate = (sale_sop_rate + sale_erdan_rate) / 2
+                # 二单元
+                erdan_sale = group_erdan.get('销售', {}).get(sale, {})
+                erdan_sale_total = erdan_sale.get('总数', 0)
+                erdan_sale_completed = erdan_sale.get('完成', 0)
+                erdan_sale_rate = (erdan_sale_completed / erdan_sale_total * 100) if erdan_sale_total > 0 else 0
+                
+                sale_combined_rate = (stt_sale_rate + sdy_sale_rate + erdan_sale_rate) / 3
                 
                 # 销售名称
                 b_cell = ws.cell(row=row, column=2)
@@ -272,80 +317,73 @@ class ServiceReportGenerator:
                 b_cell.border = border
                 b_cell.alignment = center_align
                 
-                # SOP 总数
+                # 首通总数
                 c_cell = ws.cell(row=row, column=3)
-                c_cell.value = sale_sop_total
+                c_cell.value = stt_sale_total
                 c_cell.border = border
                 c_cell.alignment = center_align
                 
-                # SOP 完成
+                # 首通完成
                 d_cell = ws.cell(row=row, column=4)
-                d_cell.value = sale_sop_completed
+                d_cell.value = stt_sale_completed
                 d_cell.border = border
                 d_cell.alignment = center_align
                 
-                # SOP 完成率
+                # 首通完成率
                 e_cell = ws.cell(row=row, column=5)
-                e_cell.value = sale_sop_rate
+                e_cell.value = stt_sale_rate
                 e_cell.number_format = '0.0"%"'
                 e_cell.border = border
                 e_cell.alignment = center_align
-                # 根据完成率着色
-                if sale_sop_rate >= 80:
-                    e_cell.fill = green_fill
-                    e_cell.font = green_font
-                elif sale_sop_rate >= 60:
-                    e_cell.fill = yellow_fill
-                    e_cell.font = yellow_font
-                else:
-                    e_cell.fill = red_fill
-                    e_cell.font = red_font
+                self._apply_rate_color(e_cell, stt_sale_rate, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font)
                 
-                # 二单元总数
+                # 首单元总数
                 f_cell = ws.cell(row=row, column=6)
-                f_cell.value = sale_erdan_total
+                f_cell.value = sdy_sale_total
                 f_cell.border = border
                 f_cell.alignment = center_align
                 
-                # 二单元完成
+                # 首单元完成
                 g_cell = ws.cell(row=row, column=7)
-                g_cell.value = sale_erdan_completed
+                g_cell.value = sdy_sale_completed
                 g_cell.border = border
                 g_cell.alignment = center_align
                 
-                # 二单元完成率
+                # 首单元完成率
                 h_cell = ws.cell(row=row, column=8)
-                h_cell.value = sale_erdan_rate
+                h_cell.value = sdy_sale_rate
                 h_cell.number_format = '0.0"%"'
                 h_cell.border = border
                 h_cell.alignment = center_align
-                # 根据完成率着色
-                if sale_erdan_rate >= 80:
-                    h_cell.fill = green_fill
-                    h_cell.font = green_font
-                elif sale_erdan_rate >= 60:
-                    h_cell.fill = yellow_fill
-                    h_cell.font = yellow_font
-                else:
-                    h_cell.fill = red_fill
-                    h_cell.font = red_font
+                self._apply_rate_color(h_cell, sdy_sale_rate, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font)
                 
-                # 综合评分
+                # 二单元总数
                 i_cell = ws.cell(row=row, column=9)
-                i_cell.value = sale_total_rate
-                i_cell.number_format = '0.0"%"'
+                i_cell.value = erdan_sale_total
                 i_cell.border = border
                 i_cell.alignment = center_align
-                # 根据综合评分着色
-                if sale_total_rate >= 80:
-                    i_cell.fill = green_fill
-                    i_cell.font = green_font
-                elif sale_total_rate >= 60:
-                    i_cell.fill = yellow_fill
-                    i_cell.font = yellow_font
-                else:
-                    i_cell.fill = red_fill
-                    i_cell.font = red_font
+                
+                # 二单元完成
+                j_cell = ws.cell(row=row, column=10)
+                j_cell.value = erdan_sale_completed
+                j_cell.border = border
+                j_cell.alignment = center_align
+                
+                # 二单元完成率
+                k_cell = ws.cell(row=row, column=11)
+                k_cell.value = erdan_sale_rate
+                k_cell.number_format = '0.0"%"'
+                k_cell.border = border
+                k_cell.alignment = center_align
+                self._apply_rate_color(k_cell, erdan_sale_rate, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font)
+                
+                # 综合评分
+                l_cell = ws.cell(row=row, column=12)
+                l_cell.value = sale_combined_rate
+                l_cell.number_format = '0.0"%"'
+                l_cell.border = border
+                l_cell.alignment = center_align
+                self._apply_rate_color(l_cell, sale_combined_rate, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font)
             
             current_row += len(all_sales)
         
@@ -362,51 +400,43 @@ class ServiceReportGenerator:
         a_summary.border = border
         a_summary.alignment = center_align
         
+        # 计算总的完成率
+        total_stt_rate = (total_stt_completed / total_stt_count * 100) if total_stt_count > 0 else 0
+        total_sdy_rate = (total_sdy_completed / total_sdy_count * 100) if total_sdy_count > 0 else 0
+        total_erdan_rate = (total_erdan_completed / total_erdan_count * 100) if total_erdan_count > 0 else 0
+        total_combined_rate = (total_stt_rate + total_sdy_rate + total_erdan_rate) / 3
+        
         # 总汇总数据
-        summary_cells = [
-            (2, ''),  # 销售列空
-            (3, total_sop_count),
-            (4, total_sop_completed),
-            (5, (total_sop_completed / total_sop_count * 100) if total_sop_count > 0 else 0),
-            (6, total_erdan_count),
-            (7, total_erdan_completed),
-            (8, (total_erdan_completed / total_erdan_count * 100) if total_erdan_count > 0 else 0),
+        summary_data = [
+            (2, ''),
+            (3, total_stt_count),
+            (4, total_stt_completed),
+            (5, total_stt_rate),
+            (6, total_sdy_count),
+            (7, total_sdy_completed),
+            (8, total_sdy_rate),
+            (9, total_erdan_count),
+            (10, total_erdan_completed),
+            (11, total_erdan_rate),
+            (12, total_combined_rate),
         ]
         
-        for col, val in summary_cells:
+        for col, val in summary_data:
             cell = ws.cell(row=summary_row, column=col)
-            if col == 2:
-                cell.value = ''
-            elif col in [5, 8]:
-                cell.value = val
-                cell.number_format = '0.0"%"'
-            else:
-                cell.value = val
             cell.fill = summary_fill
             cell.font = summary_font
             cell.border = border
             cell.alignment = center_align
-        
-        # 综合评分
-        total_sop_rate = (total_sop_completed / total_sop_count * 100) if total_sop_count > 0 else 0
-        total_erdan_rate = (total_erdan_completed / total_erdan_count * 100) if total_erdan_count > 0 else 0
-        total_combined_rate = (total_sop_rate + total_erdan_rate) / 2
-        
-        i_summary = ws.cell(row=summary_row, column=9)
-        i_summary.value = total_combined_rate
-        i_summary.number_format = '0.0"%"'
-        i_summary.fill = summary_fill
-        i_summary.font = summary_font
-        i_summary.border = border
-        i_summary.alignment = center_align
-        
-        # 根据综合评分着色
-        if total_combined_rate >= 80:
-            i_summary.fill = green_fill
-        elif total_combined_rate >= 60:
-            i_summary.fill = yellow_fill
-        else:
-            i_summary.fill = red_fill
+            
+            if col == 2:
+                cell.value = ''
+            elif col in [5, 8, 11, 12]:
+                cell.value = val
+                cell.number_format = '0.0"%"'
+                if col in [5, 8, 11, 12]:
+                    self._apply_rate_color(cell, val, green_fill, yellow_fill, red_fill, green_font, yellow_font, red_font)
+            else:
+                cell.value = val
         
         # 保存文件
         report_file = output_dir / f'服务绩效汇总报表_{self.report_date.strftime("%Y%m%d")}.xlsx'
@@ -417,7 +447,8 @@ class ServiceReportGenerator:
             'groups': len(all_groups),
             'report_file': str(report_file),
             'output_dir': str(output_dir),
-            'total_sop_rate': total_sop_rate,
+            'total_stt_rate': total_stt_rate,
+            'total_sdy_rate': total_sdy_rate,
             'total_erdan_rate': total_erdan_rate,
             'total_combined_rate': total_combined_rate
         }
@@ -454,7 +485,8 @@ def handle_sop_report_command(sop_file, erdan_file, report_date=None, output_bas
 涵盖小组数: {result['groups']}
 
 【整体完成率】
-  • SOP 完成率: {result['total_sop_rate']:.1f}%
+  • 首通完成率: {result['total_stt_rate']:.1f}%
+  • 首单元完成率: {result['total_sdy_rate']:.1f}%
   • 二单元完成率: {result['total_erdan_rate']:.1f}%
   • 综合评分: {result['total_combined_rate']:.1f}%
 
