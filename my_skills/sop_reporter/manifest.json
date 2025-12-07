@@ -1,0 +1,36 @@
+{
+  "name": "SOP & 二单元 Report Generator",
+  "description": "处理 SOP（SS首通/首单元）和二单元数据，按日期和销售名称组织，标注 24h 警戒",
+  "version": "1.0.0",
+  "type": "claude-skill",
+  "commands": [
+    {
+      "name": "sop",
+      "description": "处理 SOP 数据（SS首通、SS首单元）",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "CSV 文件路径"
+        },
+        "report_date": {
+          "type": "string",
+          "description": "报告日期（YYYY-MM-DD），默认为今天"
+        }
+      }
+    },
+    {
+      "name": "erdan",
+      "description": "处理二单元数据",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "CSV 文件路径"
+        },
+        "report_date": {
+          "type": "string",
+          "description": "报告日期（YYYY-MM-DD），默认为今天"
+        }
+      }
+    }
+  ]
+}
