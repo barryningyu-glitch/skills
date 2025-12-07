@@ -1,0 +1,63 @@
+{
+  "name": "Team Task Reporter",
+  "description": "自动化团队任务管理和每日报表生成。支持48小时SOP任务追踪、7天有效期统计、团队完成度分析",
+  "version": "1.0.0",
+  "type": "claude-skill",
+  "commands": [
+    {
+      "name": "add_task",
+      "description": "添加新任务到48小时SOP清单",
+      "parameters": {
+        "task_name": {
+          "type": "string",
+          "description": "任务名称"
+        },
+        "assigned_to": {
+          "type": "string",
+          "description": "分配给的团队成员"
+        },
+        "deadline_hours": {
+          "type": "integer",
+          "description": "截止时间（小时），默认48"
+        }
+      }
+    },
+    {
+      "name": "update_status",
+      "description": "更新任务状态（完成/未完成）",
+      "parameters": {
+        "task_id": {
+          "type": "string",
+          "description": "任务ID"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "pending"],
+          "description": "任务状态"
+        }
+      }
+    },
+    {
+      "name": "generate_report",
+      "description": "生成每日任务报表（包含48小时SOP和7天统计）",
+      "parameters": {
+        "report_type": {
+          "type": "string",
+          "enum": ["daily", "weekly"],
+          "description": "报表类型"
+        }
+      }
+    },
+    {
+      "name": "send_to_team",
+      "description": "将任务分配信息发送给团队成员",
+      "parameters": {
+        "team_members": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "团队成员邮箱列表"
+        }
+      }
+    }
+  ]
+}
