@@ -135,11 +135,18 @@ class ServiceReportGenerator:
                 erdan_data[小组]['总数'] += 1
                 erdan_data[小组]['销售'][销售]['总数'] += 1
                 
-                # 统计完成数（120s通话数有数字）
+                # 统计完成数（120s通话数有数字，且不为 0 或 '-'）
                 try:
-                    if call_120s and str(call_120s).strip() not in ['', '−', '0']:
-                        erdan_data[小组]['完成'] += 1
-                        erdan_data[小组]['销售'][销售]['完成'] += 1
+                    call_120s_str = str(call_120s).strip()
+                    # 只有当值是数字且 > 0 时才算完成
+                    if call_120s_str and call_120s_str not in ['', '−', '-', '0']:
+                        try:
+                            val = int(call_120s_str)
+                            if val > 0:
+                                erdan_data[小组]['完成'] += 1
+                                erdan_data[小组]['销售'][销售]['完成'] += 1
+                        except ValueError:
+                            pass
                 except (ValueError, TypeError):
                     pass
             
