@@ -13,13 +13,19 @@ from typing import Tuple, Optional
 class DataProcessor:
     """数据处理器 - 处理 CSV 并按规则组织"""
 
-    def __init__(self, file_path: str, report_date: Optional[str] = None):
+    def __init__(self, file_path: str, report_date: Optional[str] = None, output_base: Optional[str] = None):
         self.file_path = Path(file_path)
         if report_date:
             self.report_date = datetime.strptime(report_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
         else:
             self.report_date = datetime.now().replace(hour=23, minute=59, second=59)
         self.report_day = self.report_date.date()
+        
+        # 输出基础路径（默认为同目录下的 exports/organized/SOP）
+        if output_base:
+            self.output_base = Path(output_base)
+        else:
+            self.output_base = Path('/Users/mac/Desktop/AL/skills/anthropics-skills/my_skills/exports/organized')
         
         # 检查文件
         if not self.file_path.exists():
@@ -102,8 +108,14 @@ class DataProcessor:
         if None in (idx_sales, idx_status, idx_type, idx_gen):
             raise ValueError(f"表头缺少必需列。找到的列: {header}")
 
+        # 尝试找小组名称列（可选）
+        idx_group = self._find_column_index(header, ['小组名称', '小组', 'group'])
+
         # 设置输出目录和过滤规则
-        base_out = Path(self.file_path.parent) / 'exports' / f'organized_{mode}'
+        if mode == 'sop':
+            base_out = self.output_base / 'SOP'
+        else:
+            base_out = self.output_base / '二单元'
         base_out.mkdir(parents=True, exist_ok=True)
 
         if mode == 'sop':
@@ -180,18 +192,19 @@ class DataProcessor:
                 age_hours_str = f"{age_hours:.1f}"
                 alert = 'YELLOW' if age_hours > 24 else ''
 
-                # 分组
+                # 分组（按日期、小组、销售）
                 sales = row[idx_sales] or 'UNKNOWN'
+                group_name = row[idx_group] or 'UNKNOWN' if idx_group is not None else 'UNKNOWN'
                 out_row = row + [age_hours_str, alert, gen_date_str]
-                groups[(category, self.report_day.isoformat(), sales)].append(out_row)
+                groups[(category, self.report_day.isoformat(), group_name, sales)].append(out_row)
                 matched_rows += 1
 
         # 写入文件
         extra_cols = ['age_hours', 'alert', 'gen_date']
         created = 0
         
-        for (cat, rpt, sales), rows in groups.items():
-            dir_path = base_out / cat / rpt
+        for (cat, rpt, group, sales), rows in groups.items():
+            dir_path = base_out / rpt / group
             dir_path.mkdir(parents=True, exist_ok=True)
             fn = sales.strip()[:120].replace('/', '_').replace('\\', '_') or 'UNKNOWN'
             out_file = dir_path / f"{fn}.csv"
@@ -223,34 +236,35 @@ class DataProcessor:
         ]
         
         # 列出子目录
-        sop_dir = out_path / ("SOP" if mode == 'sop' else "二单元") / self.report_day.isoformat()
+        sop_dir = out_path / self.report_day.isoformat()
         if sop_dir.exists():
-            files = sorted(sop_dir.iterdir())
-            lines.append(f"\n📁 {mode_name} / {self.report_day.isoformat()} 目录下的文件:")
-            for f in files[:10]:
-                sz = f.stat().st_size / 1024
-                lines.append(f"  • {f.name}: {sz:.1f} KB")
-            if len(files) > 10:
-                lines.append(f"  ... 及其他 {len(files) - 10} 个文件")
+            groups = sorted([d.name for d in sop_dir.iterdir() if d.is_dir()])
+            lines.append(f"\n📁 按小组分类（{self.report_day.isoformat()}）:")
+            for g in groups[:15]:
+                group_dir = sop_dir / g
+                files = list(group_dir.glob('*.csv'))
+                lines.append(f"  • 【{g}】- {len(files)} 个销售")
+            if len(groups) > 15:
+                lines.append(f"  ... 及其他 {len(groups) - 15} 个小组")
         
         return "\n".join(lines)
 
 
 # ============ 命令处理接口 ============
 
-def handle_sop_command(file_path: str, report_date: Optional[str] = None) -> str:
+def handle_sop_command(file_path: str, report_date: Optional[str] = None, output_base: Optional[str] = None) -> str:
     """处理 /sop 命令"""
     try:
-        processor = DataProcessor(file_path, report_date)
+        processor = DataProcessor(file_path, report_date, output_base)
         return processor.report('sop')
     except Exception as e:
         return f"❌ 处理 SOP 数据时出错: {e}"
 
 
-def handle_erdan_command(file_path: str, report_date: Optional[str] = None) -> str:
+def handle_erdan_command(file_path: str, report_date: Optional[str] = None, output_base: Optional[str] = None) -> str:
     """处理 /二单元 命令"""
     try:
-        processor = DataProcessor(file_path, report_date)
+        processor = DataProcessor(file_path, report_date, output_base)
         return processor.report('erdan')
     except Exception as e:
         return f"❌ 处理二单元数据时出错: {e}"
