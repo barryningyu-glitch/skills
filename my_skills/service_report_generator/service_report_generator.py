@@ -28,7 +28,10 @@ class ServiceReportGenerator:
         self.report_month = report_date.replace(day=1)  # 当月 1 号
         
     def read_sop_data(self, sop_file):
-        """读取 SOP CSV 数据 - 只统计上海 SS 团队，分别统计首通和首单元"""
+        """读取 SOP CSV 数据 - 只统计上海 SS 团队，分别统计 SS首通 和 SS首单元
+        分子：状态为 "积极完成" 的数量
+        分母：本月的总数
+        """
         sop_data = defaultdict(lambda: {
             "首通": {"总数": 0, "完成": 0, "销售": {}},
             "首单元": {"总数": 0, "完成": 0, "销售": {}}
@@ -60,10 +63,10 @@ class ServiceReportGenerator:
                     sop_类型 = row.get('sop类型', '').strip()
                     状态 = row.get('sop状态', '').strip()
                     
-                    # 判断是首通还是首单元
-                    if '首课' in sop_类型 or '首通' in sop_类型:
+                    # 判断是首通还是首单元（只统计 SS首通 和 SS首单元）
+                    if sop_类型 == 'SS首通':
                         type_key = '首通'
-                    elif '首单元' in sop_类型:
+                    elif sop_类型 == 'SS首单元':
                         type_key = '首单元'
                     else:
                         continue
@@ -76,8 +79,8 @@ class ServiceReportGenerator:
                     sop_data[小组][type_key]['总数'] += 1
                     sop_data[小组][type_key]['销售'][销售]['总数'] += 1
                     
-                    # 统计完成数（状态为"已完成"，不受日期限制，包括历史完成）
-                    if 状态 == '已完成':
+                    # 统计完成数（状态为"积极完成"）
+                    if 状态 == '积极完成':
                         sop_data[小组][type_key]['完成'] += 1
                         sop_data[小组][type_key]['销售'][销售]['完成'] += 1
             
