@@ -1,0 +1,26 @@
+{
+  "name": "二单元 Report Generator",
+  "description": "处理二单元 Excel 数据，按 7 天内未完成（120s通话数为空）的记录，分组为 SS 小组",
+  "version": "1.0.0",
+  "type": "claude-skill",
+  "commands": [
+    {
+      "name": "erdan",
+      "description": "处理二单元数据",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "Excel 文件路径"
+        },
+        "report_date": {
+          "type": "string",
+          "description": "报告日期（YYYY-MM-DD），默认为今天"
+        },
+        "output_base": {
+          "type": "string",
+          "description": "输出基础路径，默认为 my_skills/exports/organized"
+        }
+      }
+    }
+  ]
+}
