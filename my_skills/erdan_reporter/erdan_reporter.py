@@ -1,9 +1,11 @@
 """
 二单元数据处理器 - 基于 Excel 数据
 处理 120s 通话数，按学科和小组分类，标注 7 天内未完成的记录
+输出为 Excel 格式，支持颜色标记
 """
 
 import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -163,7 +165,7 @@ class ErDanProcessor:
             groups[(group_name, ss_name)].append(out_row)
             matched_rows += 1
         
-        # 写入文件到 output_base/二单元/YYYY-MM-DD/SS小组/SS.csv
+        # 写入文件到 output_base/二单元/YYYY-MM-DD/SS小组/SS.xlsx
         base_out = self.output_base / '二单元'
         date_dir = base_out / report_day.isoformat()
         
@@ -173,12 +175,76 @@ class ErDanProcessor:
             group_dir.mkdir(parents=True, exist_ok=True)
             
             fn = ss.strip()[:120].replace('/', '_').replace('\\', '_') or 'UNKNOWN'
-            out_file = group_dir / f"{fn}.csv"
+            out_file = group_dir / f"{fn}.xlsx"
             
-            with open(out_file, 'w', newline='', encoding='utf-8-sig') as wf:
-                w = csv.writer(wf)
-                w.writerow(header + ['age_days', 'alert', 'complete_date'])
-                w.writerows(rows)
+            # 用 openpyxl 写 Excel
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = fn[:31]
+            
+            # 写表头
+            ws.append(header + ['age_days', 'alert', 'complete_date'])
+            
+            # 定义填充颜色
+            red_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+            yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+            white_font = Font(color='FFFFFF')
+            black_font = Font(color='000000')
+            
+            # 边框样式
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # 写数据行，根据 alert 标记颜色
+            for row in rows:
+                ws.append(row)
+                row_num = ws.max_row
+                alert = row[-2]  # alert 列是倒数第二列
+                
+                # 根据警戒级别应用颜色
+                fill = None
+                font = black_font
+                if alert == 'RED':
+                    fill = red_fill
+                    font = white_font
+                elif alert == 'YELLOW':
+                    fill = yellow_fill
+                    font = black_font
+                
+                # 应用样式到整行
+                for col_num, cell in enumerate(ws[row_num], 1):
+                    if fill:
+                        cell.fill = fill
+                    cell.font = font
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            
+            # 应用表头样式
+            header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+            header_font = Font(color='FFFFFF', bold=True)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            
+            # 调整列宽
+            for col in ws.columns:
+                max_len = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_len:
+                            max_len = len(str(cell.value))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+            
+            wb.save(out_file)
             created += 1
         
         return total_rows, matched_rows, base_out

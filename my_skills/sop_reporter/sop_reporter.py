@@ -1,6 +1,7 @@
 """
 SOP & 二单元 Report Generator Skill
 处理 SOP（SS首通/首单元）和二单元数据，按日期和销售名称组织，标注 24h 警戒
+输出为 Excel 格式，支持颜色标记
 """
 
 import csv
@@ -8,6 +9,8 @@ from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Tuple, Optional
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 
 class DataProcessor:
@@ -199,22 +202,86 @@ class DataProcessor:
                 groups[(category, self.report_day.isoformat(), group_name, sales)].append(out_row)
                 matched_rows += 1
 
-        # 写入文件
+        # 写入文件到 output_base/SOP/YYYY-MM-DD/小组/销售.xlsx
+        base_out = self.output_base / 'SOP'
+        date_dir = base_out / self.report_day.isoformat()
         extra_cols = ['age_hours', 'alert', 'gen_date']
-        created = 0
         
+        created = 0
         for (cat, rpt, group, sales), rows in groups.items():
-            dir_path = base_out / rpt / group
-            dir_path.mkdir(parents=True, exist_ok=True)
-            fn = sales.strip()[:120].replace('/', '_').replace('\\', '_') or 'UNKNOWN'
-            out_file = dir_path / f"{fn}.csv"
+            group_dir = date_dir / group
+            group_dir.mkdir(parents=True, exist_ok=True)
             
-            with open(out_file, 'w', newline='', encoding='utf-8-sig') as wf:
-                w = csv.writer(wf)
-                w.writerow(header + extra_cols)
-                w.writerows(rows)
+            fn = sales.strip()[:120].replace('/', '_').replace('\\', '_') or 'UNKNOWN'
+            out_file = group_dir / f"{fn}.xlsx"
+            
+            # 用 openpyxl 写 Excel
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = fn[:31]
+            
+            # 写表头
+            ws.append(header + extra_cols)
+            
+            # 定义填充颜色
+            yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+            white_font = Font(color='FFFFFF')
+            black_font = Font(color='000000')
+            
+            # 边框样式
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # 写数据行，根据 alert 标记颜色
+            for row in rows:
+                ws.append(row)
+                row_num = ws.max_row
+                alert = row[-2]  # alert 列是倒数第二列
+                
+                # 根据警戒级别应用颜色
+                if alert == 'YELLOW':
+                    fill = yellow_fill
+                    font = black_font
+                else:
+                    fill = None
+                    font = black_font
+                
+                # 应用样式到整行
+                for col_num, cell in enumerate(ws[row_num], 1):
+                    if fill:
+                        cell.fill = fill
+                    cell.font = font
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            
+            # 应用表头样式
+            header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+            header_font = Font(color='FFFFFF', bold=True)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            
+            # 调整列宽
+            for col in ws.columns:
+                max_len = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_len:
+                            max_len = len(str(cell.value))
+                    except Exception:
+                        pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+            
+            wb.save(out_file)
             created += 1
-
+        
         return total_rows, matched_rows, base_out
 
     def report(self, mode: str) -> str:
